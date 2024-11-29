@@ -8,25 +8,26 @@
 #import "NSURLProtocol+KKJSBridgeWKWebView.h"
 #import <WebKit/WebKit.h>
 
-// https://github.com/WebKit/webkit/blob/989f1ffc97f6b168687cbfc6f98d35880fdd29de/Source/WebKit/UIProcess/API/Cocoa/WKBrowsingContextController.mm
-Class KKJSBridge_WKWebView_ContextControllerClass() {
-    static Class cls;
-    if (!cls) {
-        if (@available(iOS 8.0, *)) {
-            cls = [[[WKWebView new] valueForKey:@"browsingContextController"] class];
-        } else {
-            
-        }
-    }
-    return cls;
-}
 //customSchemes
-SEL KKJSBridge_WKWebView_RegisterSchemeSelector() {
+SEL KKJSBridge_WKWebView_RegisterSchemeSelector(void) {
     return NSSelectorFromString(@"registerSchemeForCustomProtocol:");
 }
 
-SEL KKJSBridge_WKWebView_UnregisterSchemeSelector() {
+SEL KKJSBridge_WKWebView_UnregisterSchemeSelector(void) {
     return NSSelectorFromString(@"unregisterSchemeForCustomProtocol:");
+}
+// https://github.com/WebKit/webkit/blob/989f1ffc97f6b168687cbfc6f98d35880fdd29de/Source/WebKit/UIProcess/API/Cocoa/WKBrowsingContextController.mm
+Class KKJSBridge_WKWebView_ContextControllerClass(void) {
+    
+    //注册scheme
+    Class cls = NSClassFromString(@"WKBrowsingContextController");
+    SEL selector = KKJSBridge_WKWebView_RegisterSchemeSelector();
+    if ([cls respondsToSelector:selector]) {
+        return cls;
+    } else {
+        NSLog(@"browsingContextController method not found or inaccessible.");
+        return nil;
+    }
 }
 
 @implementation NSURLProtocol (KKJSBridgeWKWebView)
@@ -52,6 +53,5 @@ SEL KKJSBridge_WKWebView_UnregisterSchemeSelector() {
 #pragma clang diagnostic pop
     }
 }
-
 
 @end
