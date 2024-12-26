@@ -26,7 +26,7 @@ typedef BOOL (^KKJSBridgeCustomInterceptRequestCallback)(NSURLRequest *request);
 @property (nonatomic, strong, readonly) KKJSBridgeConfig *config; // jsbridge 配置
 @property (nonatomic, assign, getter=isBridgeReady) BOOL bridgeReady; // jsbridge 是否已经 ready
 @property (nonatomic, copy) KKJSBridgeReadyCallback bridgeReadyCallback; // jsbridge ready callback
-
+@property (nonatomic, copy) NSString *docARequestString;
 /**
  为 webView 创建一个桥接
  

@@ -1393,6 +1393,11 @@
       _KKJSBridgeXHR.setupHook();
       // JSBridge 安装完毕
       window.KKJSBridgeConfig.bridgeReady();
+      document.addEventListener('click', function(event) {
+        if (event.target.tagName === 'A') {
+            window.KKJSBridge.call(_KKJSBridgeXHR.moduleName, 'docARequest', { "href" : event.target.href });
+        }
+      });
   };
   init();
   var index = window.KKJSBridge;

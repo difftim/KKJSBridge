@@ -114,6 +114,14 @@ static NSString * const KKJSBridgeMessageName = @"KKJSBridgeMessage";
 - (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
     if ([message.name isEqualToString:KKJSBridgeMessageName]) {
         NSMutableDictionary *messageJson = [[NSMutableDictionary alloc] initWithDictionary:message.body];
+        if (messageJson[@"data"] && [messageJson[@"data"] isKindOfClass:NSDictionary.class]) {
+            NSDictionary *data = messageJson[@"data"];
+            NSString *href = data[@"href"];
+            if ( href && href.length > 0) {
+                self.docARequestString = href;
+                return;
+            }
+        }
         KKJSBridgeMessage *messageInstance = [self.dispatcher convertMessageFromMessageJson:messageJson];
         [self.dispatcher dispatchCallbackMessage:messageInstance];
     }
