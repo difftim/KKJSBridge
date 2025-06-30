@@ -146,4 +146,12 @@ static NSString * const KKJSBridgeMessageName = @"KKJSBridgeMessage";
     }
     return NO;
 }
+
+- (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
+    if (self.canonicalRequestCallback) {
+        return self.canonicalRequestCallback(request);
+    }
+    return request;
+}
+
 @end
