@@ -15,7 +15,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^KKJSBridgeReadyCallback)(KKJSBridgeEngine *engine);
 typedef BOOL (^KKJSBridgeCustomInterceptRequestCallback)(NSURLRequest *request);
-typedef NSURLRequest * _Nonnull (^KKJSBridgeCustomInterceptCanonicalRequestCallback)(NSURLRequest *request);
 
 /**
  JSBridge 引擎，统一管理 webView 桥接，模块注册，JSBridge 配置和分发事件
@@ -69,12 +68,11 @@ typedef NSURLRequest * _Nonnull (^KKJSBridgeCustomInterceptCanonicalRequestCallb
 @end
 
 @interface KKJSBridgeCustomInterceptRequest : NSObject
+
 @property (nonatomic, copy, nullable) KKJSBridgeCustomInterceptRequestCallback callback;
-@property (nonatomic, copy, nullable) KKJSBridgeCustomInterceptCanonicalRequestCallback canonicalRequestCallback;
 
 + (instancetype)shareInstance;
 - (BOOL)canInitWithRequest:(NSURLRequest *)request;
-- (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request;
 
 @end
 
