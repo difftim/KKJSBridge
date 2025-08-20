@@ -34,10 +34,6 @@ static NSString * const KKJSBridgeMessageName = @"KKJSBridgeMessage";
     [webView.configuration.userContentController removeScriptMessageHandlerForName:KKJSBridgeMessageName];
 }
 
-+ (BOOL)customCanInitWithRequest:(NSURLRequest *)request {
-    return NO;
-}
-
 + (instancetype)bridgeForWebView:(WKWebView *)webView {
     KKJSBridgeEngine *bridge = [[self alloc] initWithWebView:webView];
     webView.kk_engine = bridge;
@@ -145,13 +141,6 @@ static NSString * const KKJSBridgeMessageName = @"KKJSBridgeMessage";
         return self.callback(request);
     }
     return NO;
-}
-
-- (NSURLRequest *)canonicalRequestForRequest:(NSURLRequest *)request {
-    if (self.canonicalRequestCallback) {
-        return self.canonicalRequestCallback(request);
-    }
-    return request;
 }
 
 @end
