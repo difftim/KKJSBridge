@@ -100,8 +100,21 @@
     }
     
     if (properties.count > 0) {
+        // 补全缺失的 domain（模拟浏览器默认行为：不指定 domain 时使用当前页面 host）
+        if (!properties[NSHTTPCookieDomain]) {
+            NSURL *currentURL = engine.webView.URL;
+            if (currentURL.host) {
+                properties[NSHTTPCookieDomain] = currentURL.host;
+            }
+        }
+        // 补全缺失的 path（默认为根路径）
+        if (!properties[NSHTTPCookiePath]) {
+            properties[NSHTTPCookiePath] = @"/";
+        }
         NSHTTPCookie *cookieObject = [NSHTTPCookie cookieWithProperties:properties];
-        [[NSHTTPCookieStorage sharedHTTPCookieStorage] setCookie:cookieObject];
+        if (cookieObject) {
+            [[NSHTTPCookieStorage sharedHTTPCookieStorage] setCookie:cookieObject];
+        }
     }
 }
 
