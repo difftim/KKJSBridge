@@ -102,7 +102,15 @@
     if (properties.count > 0) {
         // 补全缺失的 domain（模拟浏览器默认行为：不指定 domain 时使用当前页面 host）
         if (!properties[NSHTTPCookieDomain]) {
-            NSURL *currentURL = engine.webView.URL;
+            // WKWebView.URL 必须在主线程访问
+            __block NSURL *currentURL = nil;
+            if ([NSThread isMainThread]) {
+                currentURL = engine.webView.URL;
+            } else {
+                dispatch_sync(dispatch_get_main_queue(), ^{
+                    currentURL = engine.webView.URL;
+                });
+            }
             if (currentURL.host) {
                 properties[NSHTTPCookieDomain] = currentURL.host;
             }
