@@ -11,6 +11,38 @@
 #import "KKJSBridgeEngine.h"
 #import "KKJSBridgeWeakProxy.h"
 
+@interface KKJSBridgePromptCompletionGuard : NSObject
+
+@property (nonatomic, copy) void (^completionHandler)(NSString * _Nullable);
+@property (nonatomic, assign) BOOL called;
+
+- (void)callWithResult:(NSString * _Nullable)result;
+
+@end
+
+@implementation KKJSBridgePromptCompletionGuard
+
+- (void)callWithResult:(NSString * _Nullable)result {
+    if (!self.called) {
+        self.called = YES;
+        if (self.completionHandler) {
+            self.completionHandler(result);
+        }
+    }
+}
+
+- (void)dealloc {
+    // 兜底：如果 callback 从未被调用，在析构时确保 completionHandler 被调用
+    if (!self.called && self.completionHandler) {
+        void (^handler)(NSString * _Nullable) = self.completionHandler;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            handler(nil);
+        });
+    }
+}
+
+@end
+
 @implementation WKWebView (KKJSBridgeEngine)
 
 - (KKJSBridgeEngine *)kk_engine {
@@ -41,26 +73,28 @@
         return YES;
     }
     
+    // 用 guard 包装 completionHandler，确保一定会被调用
+    KKJSBridgePromptCompletionGuard *guard = [KKJSBridgePromptCompletionGuard new];
+    guard.completionHandler = completionHandler;
+    
     NSString *module = body[@"module"];
     NSString *method = body[@"method"];
     NSDictionary *data = body[@"data"];
     [self.kk_engine dispatchCall:module method:method data:data callback:^(NSDictionary * _Nullable responseData) {
-        if (nil == completionHandler) {
-            return;
-        }
-        
         if (nil == responseData || 0 == responseData.count) {
-            return completionHandler(nil);
+            [guard callWithResult:nil];
+            return;
         }
         
         NSError *error;
         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:responseData options:kNilOptions error:&error];
         if (nil != error || nil == jsonData) {
-            return completionHandler(nil);
+            [guard callWithResult:nil];
+            return;
         }
         
         NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-        completionHandler(jsonString);
+        [guard callWithResult:jsonString];
     }];
     
     return YES;
