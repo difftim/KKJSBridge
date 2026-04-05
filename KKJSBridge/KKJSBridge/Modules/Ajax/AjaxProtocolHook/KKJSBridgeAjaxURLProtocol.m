@@ -8,6 +8,7 @@
 #import "KKJSBridgeAjaxURLProtocol.h"
 #import <CFNetwork/CFNetwork.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <WebKit/WebKit.h>
 #import <dlfcn.h>
 #import "KKJSBridgeAjaxBodyHelper.h"
 #import "KKJSBridgeXMLBodyCacheRequest.h"
@@ -35,8 +36,17 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
 @property (nonatomic, strong) NSURLSessionDataTask *customTask;
 @property (nonatomic, copy) NSString *requestId;
 @property (nonatomic, copy) NSString *requestHTTPMethod;
+@property (nonatomic, assign) BOOL isStreamingResponse;
 
 @end
+
+static inline void kkjsbridge_dispatch_main_safe(dispatch_block_t block) {
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), block);
+    }
+}
 
 @implementation KKJSBridgeAjaxURLProtocol
 
@@ -183,19 +193,63 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
 }
 
 #pragma mark - KKJSBridgeAjaxDelegate - 处理来自外部网络库的数据
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response webView:(WKWebView *)webView {
     if (!response) {
         // 兜底处理
         response = [[NSURLResponse alloc] initWithURL:self.request.URL MIMEType:@"application/octet-stream" expectedContentLength:0 textEncodingName:@"utf-8"];
     }
+    
+    // SSE 检测：判断 content-type 是否为 text/event-stream
+    NSString *contentType = [(NSHTTPURLResponse *)response valueForHTTPHeaderField:@"content-type"];
+    self.isStreamingResponse = contentType && [contentType containsString:@"text/event-stream"];
+    
+    // SSE: 通过 evaluateJS 发送 begin 信号，在数据推送之前创建 ReadableStream
+    // 必须和 SSEPush 走同一通道（evaluateJS），才能保证 ReadableStream 在数据之前创建
+    if (self.isStreamingResponse && webView) {
+        NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
+        NSDictionary *info = @{
+            @"status": @(httpResp.statusCode),
+            @"statusText": @"",
+            @"headers": httpResp.allHeaderFields ?: @{},
+            @"url": httpResp.URL.absoluteString ?: @"",
+            @"requestId": self.requestId ?: @""
+        };
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:info options:0 error:nil];
+        NSString *jsonStr = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+        NSString *js = [NSString stringWithFormat:@"window._KKJSBridgeSSEBegin(%@)", jsonStr];
+        kkjsbridge_dispatch_main_safe(^{
+            [webView evaluateJavaScript:js completionHandler:nil];
+        });
+    }
+    
     [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageAllowed];
 }
 
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data webView:(WKWebView *)webView {
+    // SSE: 通过 evaluateJavaScript 直接推送数据到 JS，绕过 WKWebView IPC 合并
+    if (self.isStreamingResponse && webView) {
+        NSString *reqId = self.requestId ?: @"";
+        NSString *base64 = [data base64EncodedStringWithOptions:0];
+        NSString *js = [NSString stringWithFormat:@"window._KKJSBridgeSSEPush('%@','%@')", reqId, base64];
+        kkjsbridge_dispatch_main_safe(^{
+            [webView evaluateJavaScript:js completionHandler:nil];
+        });
+    }
+    
     [self.client URLProtocol:self didLoadData:data];
 }
 
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error webView:(WKWebView *)webView {
+    // SSE: 通知 JS 流结束
+    if (self.isStreamingResponse && webView) {
+        NSString *reqId = self.requestId ?: @"";
+        BOOL hasError = (error != nil);
+        NSString *js = [NSString stringWithFormat:@"window._KKJSBridgeSSEEnd('%@',%@)", reqId, hasError ? @"true" : @"false"];
+        kkjsbridge_dispatch_main_safe(^{
+            [webView evaluateJavaScript:js completionHandler:nil];
+        });
+    }
+    
     // 清除缓存
     [self clearRequestBody];
     

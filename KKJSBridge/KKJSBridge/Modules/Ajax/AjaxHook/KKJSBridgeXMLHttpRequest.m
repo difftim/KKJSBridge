@@ -307,16 +307,16 @@ static NSString * const KKJSBridgeXMLHttpRequestStatusTextOK = @"OK";
 
 #pragma mark - KKJSBridgeAjaxDelegate - 处理来自外部网络库的数据
 
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response webView:(WKWebView *)webView {
     [self handleReceivedResponse:response];
 }
 
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data webView:(WKWebView *)webView {
     [self.receiveData appendData:data];
     [self returnReadySate:KKJSBridgeXMLHttpRequestStateLoading];
 }
 
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error {
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error webView:(WKWebView *)webView {
     NSData *data = nil;
     if (!error && self.receiveData) {
         data = [self.receiveData copy];

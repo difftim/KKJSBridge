@@ -455,6 +455,79 @@
     DOMException.prototype.constructor = DOMException;
   }
 
+  // SSE native push — native 通过 evaluateJavaScript 逐块推送数据，绕过 WKWebView IPC 合并
+  // evaluateJavaScript 和 NSURLProtocol IPC 是独立通道，evaluateJS 更快，
+  // 所以 response/data/end 全部走 evaluateJS 通道，保证时序正确。
+  // 所有状态按 requestId 隔离，支持多 SSE 流并发且不干扰非 SSE 请求。
+  var _sseControllers = {};      // requestId -> ReadableStreamDefaultController
+  var _sseBuffers = {};          // requestId -> Uint8Array[]
+  var _ssePendingResolves = {};  // requestId -> resolve function
+
+  // native didReceiveResponse 时通过 evaluateJS 调用，在数据推送前创建 ReadableStream
+  self._KKJSBridgeSSEBegin = function(info) {
+    var requestId = info.requestId || '';
+    console.log('[SSE-Diag] _KKJSBridgeSSEBegin called, status=' + info.status + ', requestId=' + requestId);
+    _sseBuffers[requestId] = [];
+    var body = new ReadableStream({
+      start: function(controller) {
+        _sseControllers[requestId] = controller;
+        var buf = _sseBuffers[requestId] || [];
+        console.log('[SSE-Diag] SSEBegin ReadableStream start, bufferLen=' + buf.length);
+        for (var i = 0; i < buf.length; i++) {
+          controller.enqueue(buf[i]);
+        }
+        _sseBuffers[requestId] = [];
+      },
+      cancel: function() {
+        delete _sseControllers[requestId];
+        delete _sseBuffers[requestId];
+      }
+    });
+
+    var response = new Response(null, {
+      status: info.status,
+      statusText: info.statusText || '',
+      headers: info.headers,
+      url: info.url || ''
+    });
+    response.body = body;
+
+    // 通过 requestId 找到正确的 fetch resolve，不影响其他并发请求
+    var pendingResolve = _ssePendingResolves[requestId];
+    if (pendingResolve) {
+      pendingResolve(response);
+      delete _ssePendingResolves[requestId];
+    }
+  };
+
+  self._KKJSBridgeSSEPush = function(requestId, base64) {
+    var bytes = Uint8Array.from(atob(base64), function(c) { return c.charCodeAt(0); });
+    var ctrl = _sseControllers[requestId];
+    console.log('[SSE-Diag] _KKJSBridgeSSEPush called, requestId=' + requestId + ', size=' + bytes.length + ', hasController=' + !!ctrl);
+    if (ctrl) {
+      ctrl.enqueue(bytes);
+    } else {
+      if (!_sseBuffers[requestId]) { _sseBuffers[requestId] = []; }
+      _sseBuffers[requestId].push(bytes);
+    }
+  };
+
+  self._KKJSBridgeSSEEnd = function(requestId, hasError) {
+    var ctrl = _sseControllers[requestId];
+    console.log('[SSE-Diag] _KKJSBridgeSSEEnd called, requestId=' + requestId + ', hasError=' + hasError + ', hasController=' + !!ctrl);
+    if (ctrl) {
+      try {
+        if (hasError) {
+          ctrl.error(new TypeError('Network request failed'));
+        } else {
+          ctrl.close();
+        }
+      } catch(e) {}
+    }
+    delete _sseControllers[requestId];
+    delete _sseBuffers[requestId];
+  };
+
   function fetch(input, init) {
     return new Promise(function(resolve, reject) {
       var request = new Request(input, init);
@@ -469,7 +542,69 @@
         xhr.abort();
       }
 
+      var isStreaming = false;
+      var resolved = false;
+
+      xhr.onreadystatechange = function() {
+        // 检测 SSE 响应
+        if (xhr.readyState === 2 && typeof ReadableStream !== 'undefined') {
+          var contentType = xhr.getResponseHeader('content-type') || '';
+          if (contentType.indexOf('text/event-stream') !== -1) {
+            console.log('[SSE-Diag] SSE detected at readyState=2, contentType=' + contentType);
+            isStreaming = true;
+            // SSEBegin 通过 evaluateJS 已经 resolve（检查 requestId 是否还在 map 中）
+            var reqId = xhr.requestId || '';
+            if (!_ssePendingResolves[reqId]) {
+              // SSEBegin 已经消费了 resolve，标记为已完成
+              resolved = true;
+            } else {
+              // Fallback: evaluateJS 未到达，通过 IPC 路径创建 ReadableStream
+              delete _ssePendingResolves[reqId];
+              var body = new ReadableStream({
+                start: function(controller) {
+                  _sseControllers[reqId] = controller;
+                  var buf = _sseBuffers[reqId] || [];
+                  console.log('[SSE-Diag] Fallback ReadableStream start, bufferLen=' + buf.length);
+                  for (var i = 0; i < buf.length; i++) {
+                    controller.enqueue(buf[i]);
+                  }
+                  _sseBuffers[reqId] = [];
+                },
+                cancel: function() {
+                  delete _sseControllers[reqId];
+                  delete _sseBuffers[reqId];
+                  xhr.abort();
+                }
+              });
+
+              var options = {
+                status: xhr.status,
+                statusText: xhr.statusText,
+                headers: parseHeaders(xhr.getAllResponseHeaders() || '')
+              };
+              options.url = 'responseURL' in xhr ? xhr.responseURL : options.headers.get('X-Request-URL');
+
+              var response = new Response(null, options);
+              response.body = body;
+              resolved = true;
+              resolve(response);
+            }
+          }
+        }
+
+        if (xhr.readyState === 4 && request.signal) {
+          request.signal.removeEventListener('abort', abortXhr);
+        }
+      };
+
       xhr.onload = function() {
+        // SSE: 流的生命周期由 native _KKJSBridgeSSEEnd 控制，这里不处理
+        if (isStreaming || resolved) {
+          return;
+        }
+        // 清理 pending resolve（非 SSE 请求正常完成）
+        if (xhr.requestId) { delete _ssePendingResolves[xhr.requestId]; }
+
         var options = {
           status: xhr.status,
           statusText: xhr.statusText,
@@ -483,21 +618,30 @@
       };
 
       xhr.onerror = function() {
-        setTimeout(function() {
-          reject(new TypeError('Network request failed'));
-        }, 0);
+        if (!resolved) {
+          if (xhr.requestId) { delete _ssePendingResolves[xhr.requestId]; }
+          setTimeout(function() {
+            reject(new TypeError('Network request failed'));
+          }, 0);
+        }
       };
 
       xhr.ontimeout = function() {
-        setTimeout(function() {
-          reject(new TypeError('Network request failed'));
-        }, 0);
+        if (!resolved) {
+          if (xhr.requestId) { delete _ssePendingResolves[xhr.requestId]; }
+          setTimeout(function() {
+            reject(new TypeError('Network request failed'));
+          }, 0);
+        }
       };
 
       xhr.onabort = function() {
-        setTimeout(function() {
-          reject(new DOMException('Aborted', 'AbortError'));
-        }, 0);
+        if (!resolved) {
+          if (xhr.requestId) { delete _ssePendingResolves[xhr.requestId]; }
+          setTimeout(function() {
+            reject(new DOMException('Aborted', 'AbortError'));
+          }, 0);
+        }
       };
 
       function fixUrl(url) {
@@ -509,6 +653,11 @@
       }
 
       xhr.open(request.method, fixUrl(request.url), true);
+
+      // xhr.open hook 会生成 requestId，存储 resolve 供 SSEBegin 通过 requestId 精确关联
+      if (xhr.requestId) {
+        _ssePendingResolves[xhr.requestId] = resolve;
+      }
 
       if (request.credentials === 'include') {
         xhr.withCredentials = true;
@@ -533,13 +682,6 @@
 
       if (request.signal) {
         request.signal.addEventListener('abort', abortXhr);
-
-        xhr.onreadystatechange = function() {
-          // DONE (success or failure)
-          if (xhr.readyState === 4) {
-            request.signal.removeEventListener('abort', abortXhr);
-          }
-        };
       }
 
       xhr.send(typeof request._bodyInit === 'undefined' ? null : request._bodyInit);

@@ -10,6 +10,8 @@
 #define KKJSBridgeAjaxDelegate_h
 #import <Foundation/Foundation.h>
 
+@class WKWebView;
+
 NS_ASSUME_NONNULL_BEGIN
 @class KKJSBridgeXMLHttpRequest;
 
@@ -19,9 +21,9 @@ NS_ASSUME_NONNULL_BEGIN
 @protocol KKJSBridgeAjaxDelegate <NSObject>
 
 @required
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response;
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data;
-- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error;
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveResponse:(NSURLResponse *)response webView:(WKWebView * _Nullable)webView;
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didReceiveData:(NSData *)data webView:(WKWebView * _Nullable)webView;
+- (void)JSBridgeAjax:(id<KKJSBridgeAjaxDelegate>)ajax didCompleteWithError:(NSError * _Nullable)error webView:(WKWebView * _Nullable)webView;
 
 @end
 

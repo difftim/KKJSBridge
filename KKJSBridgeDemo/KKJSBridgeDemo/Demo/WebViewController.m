@@ -111,20 +111,20 @@
 + (NSURLSessionDataTask *)dataTaskWithRequest:(NSURLRequest *)request callbackDelegate:(NSObject<KKJSBridgeAjaxDelegate> *)callbackDelegate {
     return [[self ajaxSesstionManager] dataTaskWithRequest:request uploadProgress:nil downloadProgress:nil completionHandler:^(NSURLResponse * _Nonnull response, id  _Nullable responseObject, NSError * _Nullable error) {
         // 处理响应数据
-        [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveResponse:response];
+        [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveResponse:response webView:nil];
         if ([responseObject isKindOfClass:NSData.class]) {
-            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseObject];
+            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseObject webView:nil];
         } else if ([responseObject isKindOfClass:NSDictionary.class]) {
             NSData *responseData = [NSJSONSerialization dataWithJSONObject:responseObject options:0 error:nil];
-            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseData];
+            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseData webView:nil];
         } else {
             NSData *responseData = [NSJSONSerialization dataWithJSONObject:@{} options:0 error:nil];
-            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseData];
+            [callbackDelegate JSBridgeAjax:callbackDelegate didReceiveData:responseData webView:nil];
         }
         if (responseObject) {
             error = nil;
         }
-        [callbackDelegate JSBridgeAjax:callbackDelegate didCompleteWithError:error];
+        [callbackDelegate JSBridgeAjax:callbackDelegate didCompleteWithError:error webView:nil];
     }];
 }
 
