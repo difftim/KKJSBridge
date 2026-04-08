@@ -546,49 +546,23 @@
       var resolved = false;
 
       xhr.onreadystatechange = function() {
-        // 检测 SSE 响应
+        // 检测 SSE 响应：仅当 _KKJSBridgeSSEBegin (evaluateJS) 已经 resolve 时才标记
+        // 如果 evaluateJS 不可用（webView 为 nil），不创建 fallback ReadableStream，
+        // 让 onload 正常处理响应，避免 ReadableStream 永远收不到数据导致挂起
         if (xhr.readyState === 2 && typeof ReadableStream !== 'undefined') {
           var contentType = xhr.getResponseHeader('content-type') || '';
           if (contentType.indexOf('text/event-stream') !== -1) {
-            console.log('[SSE-Diag] SSE detected at readyState=2, contentType=' + contentType);
-            isStreaming = true;
-            // SSEBegin 通过 evaluateJS 已经 resolve（检查 requestId 是否还在 map 中）
             var reqId = xhr.requestId || '';
-            if (!_ssePendingResolves[reqId]) {
-              // SSEBegin 已经消费了 resolve，标记为已完成
+            console.log('[SSE-Diag] SSE detected at readyState=2, contentType=' + contentType + ', reqId=' + reqId);
+            if (reqId && !_ssePendingResolves[reqId]) {
+              // SSEBegin (evaluateJS) 已经消费了 resolve，标记为已完成
+              console.log('[SSE-Diag] SSEBegin already resolved for reqId=' + reqId);
+              isStreaming = true;
               resolved = true;
-            } else {
-              // Fallback: evaluateJS 未到达，通过 IPC 路径创建 ReadableStream
-              delete _ssePendingResolves[reqId];
-              var body = new ReadableStream({
-                start: function(controller) {
-                  _sseControllers[reqId] = controller;
-                  var buf = _sseBuffers[reqId] || [];
-                  console.log('[SSE-Diag] Fallback ReadableStream start, bufferLen=' + buf.length);
-                  for (var i = 0; i < buf.length; i++) {
-                    controller.enqueue(buf[i]);
-                  }
-                  _sseBuffers[reqId] = [];
-                },
-                cancel: function() {
-                  delete _sseControllers[reqId];
-                  delete _sseBuffers[reqId];
-                  xhr.abort();
-                }
-              });
-
-              var options = {
-                status: xhr.status,
-                statusText: xhr.statusText,
-                headers: parseHeaders(xhr.getAllResponseHeaders() || '')
-              };
-              options.url = 'responseURL' in xhr ? xhr.responseURL : options.headers.get('X-Request-URL');
-
-              var response = new Response(null, options);
-              response.body = body;
-              resolved = true;
-              resolve(response);
             }
+            // else: evaluateJS 尚未到达或不可用（webView nil），不做任何操作。
+            // 如果 evaluateJS 稍后到达，_KKJSBridgeSSEBegin 会通过 _ssePendingResolves 正确 resolve。
+            // 如果 evaluateJS 永远不到达（webView nil），onload 会正常 resolve 响应。
           }
         }
 
@@ -598,12 +572,19 @@
       };
 
       xhr.onload = function() {
-        // SSE: 流的生命周期由 native _KKJSBridgeSSEEnd 控制，这里不处理
-        if (isStreaming || resolved) {
+        // SSE: 已通过 evaluateJS 路径 resolve，流的生命周期由 native _KKJSBridgeSSEEnd 控制
+        if (resolved) {
           return;
         }
-        // 清理 pending resolve（非 SSE 请求正常完成）
-        if (xhr.requestId) { delete _ssePendingResolves[xhr.requestId]; }
+        // 再次检查：SSEBegin 可能在 readyState=2 之后、onload 之前通过 evaluateJS resolve 了
+        var reqId = xhr.requestId || '';
+        if (reqId && !_ssePendingResolves[reqId]) {
+          // _ssePendingResolves 已被消费（SSEBegin 已 resolve），不重复处理
+          resolved = true;
+          return;
+        }
+        // 清理 pending resolve（非 SSE 请求或 webView 不可用时的正常完成路径）
+        if (reqId) { delete _ssePendingResolves[reqId]; }
 
         var options = {
           status: xhr.status,
