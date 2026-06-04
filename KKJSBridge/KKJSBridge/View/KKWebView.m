@@ -18,6 +18,10 @@
 /// A real delegate of the class.
 @property (nonatomic, weak) id<WKNavigationDelegate> realNavigationDelegate;
 
+/// The real UI delegate set by the host. KKWebView stays the actual UIDelegate and
+/// forwards methods it doesn't implement (e.g. createWebViewWith / webViewDidClose) to here.
+@property (nonatomic, weak) id<WKUIDelegate> realUIDelegate;
+
 @end
 
 @implementation KKWebView
@@ -135,7 +139,21 @@
 #pragma mark - WKUIDelegate
 // 创建一个新的 webView
 - (nullable WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
-    if (!navigationAction.targetFrame.isMainFrame) {// 针对 <a target="_blank" href="" > 做处理。同时也会同步 cookie， 保持 loadRequest 加载请求携带 cookie 的一致性。
+    // 优先交给宿主：宿主返回的子 WebView 会被 WebKit 用来建立 window.opener 关系，
+    // 这是 SCORM / OAuth / 支付等依赖 window.open 弹窗能正常工作的前提。
+    if ([self.realUIDelegate respondsToSelector:_cmd]) {
+        WKWebView *childWebView = [self.realUIDelegate webView:webView
+                                createWebViewWithConfiguration:configuration
+                                           forNavigationAction:navigationAction
+                                                windowFeatures:windowFeatures];
+        if (childWebView) {
+            return childWebView;
+        }
+    }
+
+    // 兜底：宿主未接管时，保持原 <a target="_blank" href="" > 在当前 WebView 打开的旧行为，
+    // 同时同步 cookie，保持 loadRequest 加载请求携带 cookie 的一致性。
+    if (!navigationAction.targetFrame.isMainFrame) {
         [webView loadRequest:[KKWebViewCookieManager fixRequest:navigationAction.request]];
     }
     return nil;
@@ -282,21 +300,32 @@
     super.navigationDelegate = navigationDelegate ? self : nil;
 }
 
+- (void)setUIDelegate:(id<WKUIDelegate>)UIDelegate
+{
+    self.realUIDelegate = (UIDelegate != self ? UIDelegate : nil);
+    super.UIDelegate = UIDelegate ? self : nil;
+}
+
 - (BOOL)respondsToSelector:(SEL)aSelector
 {
-    return [super respondsToSelector:aSelector] || [_realNavigationDelegate respondsToSelector:aSelector];
+    return [super respondsToSelector:aSelector]
+        || [_realNavigationDelegate respondsToSelector:aSelector]
+        || [_realUIDelegate respondsToSelector:aSelector];
 }
 
 - (NSMethodSignature *)methodSignatureForSelector:(SEL)aSelector
 {
-    return [super methodSignatureForSelector:aSelector] ?: [(id)_realNavigationDelegate methodSignatureForSelector:aSelector];
+    return [super methodSignatureForSelector:aSelector]
+        ?: [(id)_realNavigationDelegate methodSignatureForSelector:aSelector]
+        ?: [(id)_realUIDelegate methodSignatureForSelector:aSelector];
 }
 
 - (void)forwardInvocation:(NSInvocation *)invocation
 {
-    id delegate = _realNavigationDelegate;
-    if ([delegate respondsToSelector:invocation.selector]) {
-        [invocation invokeWithTarget:delegate];
+    if ([_realNavigationDelegate respondsToSelector:invocation.selector]) {
+        [invocation invokeWithTarget:_realNavigationDelegate];
+    } else if ([_realUIDelegate respondsToSelector:invocation.selector]) {
+        [invocation invokeWithTarget:_realUIDelegate];
     }
 }
 
