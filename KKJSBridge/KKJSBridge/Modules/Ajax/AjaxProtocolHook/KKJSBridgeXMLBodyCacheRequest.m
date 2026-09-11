@@ -11,6 +11,9 @@
 #import "KKJSBridgeEngine.h"
 #import "KKJSBridgeAjaxURLProtocol.h"
 #import "KKJSBridgeSafeDictionary.h"
+#import "KKJSBridgeFormBodyStore.h"
+#import <objc/runtime.h>
+static char formBodyStoreKey;
 
 static KKJSBridgeSafeDictionary *bodyCache;
 
@@ -73,6 +76,34 @@ static KKJSBridgeSafeDictionary *bodyCache;
                            @"requestUrl": params[@"requestUrl"] ? params[@"requestUrl"] : @""
                          });
     }
+}
+
+// The store lifetime and policy belong to this engine, never to the singleton module.
++ (BOOL)installFormBodyRecoveryForEngine:(KKJSBridgeEngine *)engine rules:(NSArray *)rules {
+    NSAssert(NSThread.isMainThread, @"Install before navigation on main thread");
+    if (objc_getAssociatedObject(engine, &formBodyStoreKey)) return NO;
+    KKJSBridgeFormBodyStore *store = [[KKJSBridgeFormBodyStore alloc] initWithRules:rules];
+    NSURL *resource = [[NSBundle bundleForClass:self] URLForResource:@"KKJSBridgeFormBodyRecovery" withExtension:@"js"];
+    NSString *source = resource ? [NSString stringWithContentsOfURL:resource encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (!store || !source || !engine.webView) return NO;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:store.configuration options:0 error:nil];
+    NSString *config = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+    NSString *script = [source stringByAppendingFormat:@"\nwindow.KKJSBridgeInstallFormBodyRecovery(%@);", config];
+    [engine.webView.configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:script
+        injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+    objc_setAssociatedObject(engine, &formBodyStoreKey, store, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return YES;
+}
+
+- (void)cacheFormBody:(KKJSBridgeEngine *)engine params:(NSDictionary *)params responseCallback:(void (^)(NSDictionary *))responseCallback {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        KKJSBridgeFormBodyStore *store = objc_getAssociatedObject(engine, &formBodyStoreKey);
+        NSURL *sourceURL = [params[@"__nativeFormSourceURL"] isKindOfClass:NSURL.class] ? params[@"__nativeFormSourceURL"] : nil;
+        BOOL cached = [store cacheParameters:params sourceURL:sourceURL];
+        NSLog(@"[KK-FormBody] stage=%@ bodyBytes=%lu", cached ? @"cacheStored" : @"cacheRejected",
+            (unsigned long)(cached ? [params[@"value"] lengthOfBytesUsingEncoding:NSUTF8StringEncoding] : 0));
+        if (responseCallback) responseCallback(@{@"cached": @(cached)});
+    });
 }
 
 + (NSDictionary *)getRequestBody:(NSString *)requestId {

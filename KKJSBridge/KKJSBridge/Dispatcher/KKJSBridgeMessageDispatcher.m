@@ -148,7 +148,10 @@ typedef void (^KKJSBridgeMessageCallback)(NSDictionary *responseData);
                 callback = message.callback;
             }
             
-            [KKJSBridgeLogger log:@"Receive" module:moduleName method:methodName data:params];
+            // Form bodies may contain passwords/tokens. Never log the recovery payload.
+            if (!([moduleName isEqualToString:@"ajax"] && [methodName isEqualToString:@"cacheFormBody"])) {
+                [KKJSBridgeLogger log:@"Receive" module:moduleName method:methodName data:params];
+            }
             [methodInvokeQueue addOperationWithBlock:^{
                 CFTimeInterval start = CFAbsoluteTimeGetCurrent();
                 ((void (*)(id, SEL, KKJSBridgeEngine *, NSDictionary *, KKJSBridgeMessageCallback))objc_msgSend)(instance, apiMethodNameSEL, self.engine, params, callback);

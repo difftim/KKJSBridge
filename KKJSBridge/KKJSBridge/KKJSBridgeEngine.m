@@ -118,6 +118,15 @@ static NSString * const KKJSBridgeMessageName = @"KKJSBridgeMessage";
                 return;
             }
         }
+        if ([messageJson[@"module"] isEqual:@"ajax"] && [messageJson[@"method"] isEqual:@"cacheFormBody"]) {
+            // NSURL cannot be forged by JSON. Bind policy checks to the sending main frame,
+            // not webView.URL, which may already reflect a provisional navigation.
+            if (!message.frameInfo.isMainFrame || !message.frameInfo.request.URL) return;
+            NSMutableDictionary *data = [messageJson[@"data"] isKindOfClass:NSDictionary.class] ? [messageJson[@"data"] mutableCopy] : nil;
+            if (!data) return;
+            data[@"__nativeFormSourceURL"] = message.frameInfo.request.URL;
+            messageJson[@"data"] = data;
+        }
         KKJSBridgeMessage *messageInstance = [self.dispatcher convertMessageFromMessageJson:messageJson];
         [self.dispatcher dispatchCallbackMessage:messageInstance];
     }

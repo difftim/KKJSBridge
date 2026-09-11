@@ -12,6 +12,7 @@
 #import <dlfcn.h>
 #import "KKJSBridgeAjaxBodyHelper.h"
 #import "KKJSBridgeXMLBodyCacheRequest.h"
+#import "KKJSBridgeFormBodyStore.h"
 #import "KKJSBridgeConfig.h"
 #import "KKJSBridgeAjaxDelegate.h"
 #import "KKJSBridgeSwizzle.h"
@@ -37,6 +38,8 @@ static NSString * const kKKJSBridgeAjaxResponseHeaderAC = @"Access-Control-Allow
 @property (nonatomic, copy) NSString *requestId;
 @property (nonatomic, copy) NSString *requestHTTPMethod;
 @property (nonatomic, assign) BOOL isStreamingResponse;
+@property (atomic) BOOL formBodyStopped;
+@property (nonatomic, copy) dispatch_block_t cancelFormBodyWait;
 
 @end
 
@@ -60,7 +63,7 @@ static inline void kkjsbridge_dispatch_main_safe(dispatch_block_t block) {
      //?KKJSBridge-RequestId=159274166292276828
      链接有 RequestId
      */
-    if ([request.URL.absoluteString containsString:kKKJSBridgeRequestId]) {
+    if ([KKJSBridgeFormBodyStore tokenInURL:request.URL] || [request.URL.absoluteString containsString:kKKJSBridgeRequestId]) {
         return YES;
     }
 
@@ -87,13 +90,35 @@ static inline void kkjsbridge_dispatch_main_safe(dispatch_block_t block) {
 }
 
 - (void)startLoading {
-    NSMutableURLRequest *mutableReqeust = [[self request] mutableCopy];
+    if ([KKJSBridgeFormBodyStore tokenInURL:self.request.URL]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.formBodyStopped) return;
+            __weak typeof(self) weakSelf = self;
+            self.cancelFormBodyWait = [KKJSBridgeFormBodyStore awaitRequest:self.request completion:^(NSMutableURLRequest *request, NSError *error) {
+                typeof(self) self = weakSelf;
+                if (!self || self.formBodyStopped) return;
+                if (request) {
+                    NSLog(@"[KK-FormBody] stage=restored bodyBytes=%lu", (unsigned long)request.HTTPBody.length);
+                    [self startRequest:request recoveredForm:YES];
+                } else {
+                    NSLog(@"[KK-FormBody] stage=blockedMissingBody");
+                    [self.client URLProtocol:self didFailWithError:error];
+                }
+            }];
+        });
+        return;
+    }
+    [self startRequest:[self.request mutableCopy] recoveredForm:NO];
+}
+
+- (void)startRequest:(NSMutableURLRequest *)mutableReqeust recoveredForm:(BOOL)recoveredForm {
+    if (recoveredForm && self.formBodyStopped) return;
     //给我们处理过的请求设置一个标识符, 防止无限循环,
     [NSURLProtocol setProperty:@YES forKey:kKKJSBridgeNSURLProtocolKey inRequest:mutableReqeust];
     
-    NSString *requestId;
+    NSString *requestId = nil;
     //?KKJSBridge-RequestId=159274166292276828
-    if ([mutableReqeust.URL.absoluteString containsString:kKKJSBridgeRequestId]) {
+    if (!recoveredForm && [mutableReqeust.URL.absoluteString containsString:kKKJSBridgeRequestId]) {
         requestId = [self fetchRequestId:mutableReqeust.URL.absoluteString];
         // 移除临时的请求id键值对
         NSString *reqeustPair = [self fetchRequestIdPair:mutableReqeust.URL.absoluteString];
@@ -121,7 +146,7 @@ static inline void kkjsbridge_dispatch_main_safe(dispatch_block_t block) {
     
     // 设置 body，针对没有 body 的方法，做一道拦截，不去设置 body，保持跟原生 WebView 一致的处理
     NSArray<NSString *> *methods = @[@"GET"];
-    if (mutableReqeust.HTTPMethod.length > 0 && ![methods containsObject:mutableReqeust.HTTPMethod]) {
+    if (!recoveredForm && mutableReqeust.HTTPMethod.length > 0 && ![methods containsObject:mutableReqeust.HTTPMethod]) {
         NSDictionary *bodyReqeust = [KKJSBridgeXMLBodyCacheRequest getRequestBody:requestId];
         if (bodyReqeust) {
             // 从把缓存的 body 设置给 request
@@ -137,10 +162,20 @@ static inline void kkjsbridge_dispatch_main_safe(dispatch_block_t block) {
         self.customTask = [session dataTaskWithRequest:mutableReqeust];
     }
     
-    [self.customTask resume];
+    if (recoveredForm && self.formBodyStopped) [self.customTask cancel];
+    else [self.customTask resume];
 }
 
 - (void)stopLoading {
+    // Only native form recovery has an asynchronous body wait to cancel.
+    // Inspect the original URL so stopLoading also works before startLoading runs.
+    if ([KKJSBridgeFormBodyStore tokenInURL:self.request.URL]) {
+        self.formBodyStopped = YES;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.cancelFormBodyWait) self.cancelFormBodyWait();
+            self.cancelFormBodyWait = nil;
+        });
+    }
     if (self.customTask != nil) {
         [self.customTask  cancel];
         self.customTask = nil;

@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name         = "KKJSBridge"
-  s.version      = "1.3.9-difft.9"
+  s.version      = "1.3.9-difft.10"
   s.summary      = "One-stop solution for WKWebView to support offline resource，ajax/fetch request and cookie sync issues."
   s.description  = <<-DESC
                    One-stop solution for WKWebView to support offline resource，ajax/fetch request and cookie sync issues
@@ -32,7 +32,7 @@ Pod::Spec.new do |s|
 
   s.subspec 'AjaxProtocolHook' do |sub|
     sub.source_files  = "KKJSBridge/KKJSBridge/Modules/Ajax/AjaxProtocolHook/**/*.{h,m}"
-    sub.resources = "KKJSBridge/KKJSBridge/JS/KKJSBridgeAJAXProtocolHook.js"
+    sub.resources = ["KKJSBridge/KKJSBridge/JS/KKJSBridgeAJAXProtocolHook.js", "KKJSBridge/KKJSBridge/JS/KKJSBridgeFormBodyRecovery.js"]
     sub.dependency "KKJSBridge/Core"
     sub.user_target_xcconfig = {
         'GCC_PREPROCESSOR_DEFINITIONS' => '$(inherited) KKAjaxProtocolHook=1'

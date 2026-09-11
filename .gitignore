@@ -6,3 +6,7 @@ KKJSBridge/TS/node_modules/*
 KKJSBridge/TS/package-lock.json
 KKJSBridgeDemo/Podfile.lock
 KKJSBridgeDemo/Pods/*
+
+# Local form-body regression artifacts
+/.build/form-body-tests/
+/Tests/**/__pycache__/
