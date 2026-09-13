@@ -43,7 +43,9 @@ let cases: [Case] = [
  Case(name: "cache failure", recovered: false, cacheWorks: false),
  Case(name: "feature off", recovered: false, enabled: false),
  Case(name: "other domain", recovered: false, base: "https://example.com/ui/login/test"),
- Case(name: "other action", setup: "document.querySelector('form').setAttribute('action','/other')", recovered: false),
+ Case(name: "SPA leaves source scope", setup: "history.pushState({},'', '/outside/')", recovered: false),
+ Case(name: "new same-origin action", setup: "document.querySelector('form').setAttribute('action','/new/endpoint')"),
+ Case(name: "cross-origin action", setup: "document.querySelector('form').setAttribute('action','https://api.example/submit')", recovered: false),
  Case(name: "unsupported encoding", setup: "document.querySelector('form').enctype='multipart/form-data'", recovered: false),
  Case(name: "file form", recovered: false, extraHTML: "<input type='file' name='file'>"),
  Case(name: "explicit submit", trigger: "HTMLFormElement.prototype.submit.call(document.querySelector('form'))", recovered: false)
@@ -72,7 +74,7 @@ final class Runner: NSObject, WKNavigationDelegate, WKUIDelegate {
   window._KKJSBridgeXHR={generateXHRRequestId:()=>String(Date.now())};
   window.KKJSBridge={call:(module,method,data)=>JSON.parse(prompt('KKJSBridge',JSON.stringify(data))||'null')};
   """
-  config.userContentController.addUserScript(WKUserScript(source: shim + recovery + (current.enabled ? "window.KKJSBridgeInstallFormBodyRecovery({scope:'test-scope',rules:[{sourceOrigin:'https://sso.difft.org',sourcePathPrefix:'/ui/login/',targetOrigin:'https://sso.difft.org',targetPath:'/ui/login/loginname'},{sourceOrigin:'https://sso.difft.org',sourcePathPrefix:'/ui/login/',targetOrigin:'https://sso.difft.org',targetPath:'/ui/login/otp/olddevice'}]});" : ""),injectionTime:.atDocumentStart,forMainFrameOnly:true))
+  config.userContentController.addUserScript(WKUserScript(source: shim + recovery + (current.enabled ? "window.KKJSBridgeInstallFormBodyRecovery({scope:'test-scope',rules:[{sourceOrigin:'https://sso.difft.org',sourcePathPrefix:'/ui/login/'}]});" : ""),injectionTime:.atDocumentStart,forMainFrameOnly:true))
   web=WKWebView(frame:NSRect(x:0,y:0,width:600,height:400),configuration:config)
   web.navigationDelegate=self;web.uiDelegate=self
   if window == nil { window=NSWindow(contentRect:web.frame,styleMask:[.borderless],backing:.buffered,defer:false) }
@@ -164,7 +166,7 @@ final class ScopeRunner: NSObject, WKScriptMessageHandler, WKNavigationDelegate 
    window.KKJSBridgeConfig={ajaxHook:true};
    Object.defineProperty(crypto,'getRandomValues',{value:a=>a.fill(7)});
    window.KKJSBridge={call:(m,n,data)=>window.webkit.messageHandlers.testBody.postMessage(data)};
-   """ + recovery + "window.KKJSBridgeInstallFormBodyRecovery({scope:'\(scope)',rules:[{sourceOrigin:'https://forms.example',sourcePathPrefix:'/pages/',targetOrigin:'https://forms.example',targetPath:'/submit'}]});"
+   """ + recovery + "window.KKJSBridgeInstallFormBodyRecovery({scope:'\(scope)',rules:[{sourceOrigin:'https://forms.example',sourcePathPrefix:'/pages/'}]});"
    config.userContentController.addUserScript(WKUserScript(source:script,injectionTime:.atDocumentStart,forMainFrameOnly:true))
    let web=WKWebView(frame:NSRect(x:0,y:0,width:400,height:300),configuration:config)
    web.navigationDelegate=self

@@ -14,7 +14,7 @@ final class WireRunner:NSObject,WKNavigationDelegate,WKScriptMessageHandler {
   let config=WKWebViewConfiguration()
   config.userContentController.add(self,name:"wireBody")
   let shim="window.KKJSBridgeConfig={ajaxHook:true};window.KKJSBridge={call:(m,n,d)=>webkit.messageHandlers.wireBody.postMessage(d)};"
-  config.userContentController.addUserScript(WKUserScript(source:shim+recovery+"window.KKJSBridgeInstallFormBodyRecovery({scope:'wire-test',rules:[{sourceOrigin:'\(origin)',sourcePathPrefix:'/pages/',targetOrigin:'\(origin)',targetPath:'/submit'}]});",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+  config.userContentController.addUserScript(WKUserScript(source:shim+recovery+"window.KKJSBridgeInstallFormBodyRecovery({scope:'wire-test',rules:[{sourceOrigin:'\(origin)',sourcePathPrefix:'/pages/'}]});",injectionTime:.atDocumentStart,forMainFrameOnly:true))
   web=WKWebView(frame:NSRect(x:0,y:0,width:400,height:300),configuration:config);web.navigationDelegate=self
   window=NSWindow(contentRect:web.frame,styleMask:[.borderless],backing:.buffered,defer:false);window.contentView=web
   web.load(URLRequest(url:URL(string:origin+"/pages/form")!))

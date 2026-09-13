@@ -65,10 +65,10 @@ static NSString *origin(NSURL *url) {
     return [NSString stringWithFormat:@"https://%@%@", host,
         url.port && url.port.integerValue != 443 ? [@":" stringByAppendingString:url.port.stringValue] : @""];
 }
-static BOOL matches(NSArray *rules, NSURL *source, NSURL *target) {
+static BOOL matchesSource(NSArray *rules, NSURL *source) {
     for (NSDictionary *rule in rules) {
-        if ([origin(source) isEqual:rule[@"sourceOrigin"]] && [[NSURLComponents componentsWithURL:source resolvingAgainstBaseURL:NO].percentEncodedPath hasPrefix:rule[@"sourcePathPrefix"]] &&
-            [origin(target) isEqual:rule[@"targetOrigin"]] && [[NSURLComponents componentsWithURL:target resolvingAgainstBaseURL:NO].percentEncodedPath isEqual:rule[@"targetPath"]]) return YES;
+        if ([origin(source) isEqual:rule[@"sourceOrigin"]] &&
+            [[NSURLComponents componentsWithURL:source resolvingAgainstBaseURL:NO].percentEncodedPath hasPrefix:rule[@"sourcePathPrefix"]]) return YES;
     }
     return NO;
 }
@@ -78,16 +78,14 @@ static BOOL matches(NSArray *rules, NSURL *source, NSURL *target) {
     NSMutableArray *normalized = [NSMutableArray array];
     for (NSDictionary *rule in rules) {
         if (![rule isKindOfClass:NSDictionary.class]) return nil;
-        for (NSString *key in @[@"sourceOrigin", @"sourcePathPrefix", @"targetOrigin", @"targetPath"])
+        for (NSString *key in @[@"sourceOrigin", @"sourcePathPrefix"])
             if (![rule[key] isKindOfClass:NSString.class]) return nil;
         NSURL *source = [NSURL URLWithString:rule[@"sourceOrigin"]];
-        NSURL *target = [NSURL URLWithString:rule[@"targetOrigin"]];
-        if (!origin(source) || !origin(target) || source.query || target.query || source.fragment || target.fragment ||
-            source.path.length > 1 || target.path.length > 1 ||
+        if (!origin(source) || source.query || source.fragment || source.path.length > 1 ||
             ![rule[@"sourcePathPrefix"] hasPrefix:@"/"] || ![rule[@"sourcePathPrefix"] hasSuffix:@"/"] ||
-            ![rule[@"targetPath"] hasPrefix:@"/"]) return nil;
-        [normalized addObject:@{@"sourceOrigin": origin(source), @"sourcePathPrefix": rule[@"sourcePathPrefix"],
-            @"targetOrigin": origin(target), @"targetPath": rule[@"targetPath"]}];
+            [rule[@"sourcePathPrefix"] containsString:@"?"] || [rule[@"sourcePathPrefix"] containsString:@"#"]) return nil;
+        NSDictionary *normalizedRule = @{@"sourceOrigin": origin(source), @"sourcePathPrefix": rule[@"sourcePathPrefix"]};
+        if (![normalized containsObject:normalizedRule]) [normalized addObject:normalizedRule];
     }
     if ((self = [super init])) {
         _configuration = @{@"scope": NSUUID.UUID.UUIDString, @"rules": normalized};
@@ -112,13 +110,15 @@ static BOOL matches(NSArray *rules, NSURL *source, NSURL *target) {
 }
 - (BOOL)cacheParameters:(NSDictionary *)params sourceURL:(NSURL *)sourceURL {
     NSAssert(NSThread.isMainThread, @"Main thread only");
-    NSString *token = params[@"requestId"], *value = params[@"value"], *urlString = params[@"requestUrl"];
+    NSString *token = params[@"requestId"], *value = params[@"value"], *urlString = params[@"requestUrl"], *method = params[@"requestMethod"];
     NSURL *url = [urlString isKindOfClass:NSString.class] ? [NSURL URLWithString:urlString] : nil;
     [self prune];
     if ([KKJSBridgeFormBodyStore storeForToken:token] != self || self.used[token] || self.entries[token] ||
         self.entries.count + self.used.count >= 128 || ![value isKindOfClass:NSString.class] ||
-        [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 65536 || url.fragment != nil || !matches(self.configuration[@"rules"], sourceURL, url)) return NO;
-    self.entries[token] = @{@"url": urlString, @"body": [value dataUsingEncoding:NSUTF8StringEncoding],
+        [value lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 65536 || ![method isEqual:@"POST"] ||
+        url.fragment != nil || !matchesSource(self.configuration[@"rules"], sourceURL) ||
+        ![origin(sourceURL) isEqual:origin(url)]) return NO;
+    self.entries[token] = @{@"url": urlString, @"method": method, @"body": [value dataUsingEncoding:NSUTF8StringEncoding],
         @"expiry": @(NSProcessInfo.processInfo.systemUptime + 10)};
     // Do not retain the body in the timer block, nor keep a closed WebView alive.
     __weak typeof(self) weakSelf = self;
@@ -141,7 +141,7 @@ static BOOL matches(NSArray *rules, NSURL *source, NSURL *target) {
     KKJSBridgeFormBodyStore *store = [self storeForToken:token];
     [store prune];
     NSDictionary *entry = store.entries[token];
-    if (!entry || ![request.HTTPMethod isEqual:@"POST"] || ![[self tokenInURL:request.URL] isEqual:token]) return nil;
+    if (!entry || ![request.HTTPMethod isEqual:entry[@"method"]] || ![[self tokenInURL:request.URL] isEqual:token]) return nil;
     NSURLComponents *c = [NSURLComponents componentsWithURL:request.URL resolvingAgainstBaseURL:NO];
     NSRange separator = [c.percentEncodedQuery rangeOfString:@"&" options:NSBackwardsSearch];
     c.percentEncodedQuery = separator.location == NSNotFound ? nil : [c.percentEncodedQuery substringToIndex:separator.location];

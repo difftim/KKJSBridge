@@ -17,7 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface KKJSBridgeXMLBodyCacheRequest : NSObject
 
-// Install once before navigation. Rules are normalized once and shared with JS.
+// Install once before navigation. Rules select HTTPS page scopes; eligible forms must submit to the same origin.
 + (BOOL)installFormBodyRecoveryForEngine:(KKJSBridgeEngine *)engine
                                  rules:(NSArray<NSDictionary<NSString *, NSString *> *> *)rules
     NS_SWIFT_NAME(installFormBodyRecovery(for:rules:));

@@ -5,10 +5,12 @@
         if (!config || !config.scope || !Array.isArray(config.rules) || window.top !== window ||
             !('FormDataEvent' in window) || !window.KKJSBridge || !window.crypto ||
             window.__kkFormBodyRecoveryInstalled) return;
-        var rules = config.rules.filter(function (r) {
-            return location.origin === r.sourceOrigin && location.pathname.indexOf(r.sourcePathPrefix) === 0;
-        });
-        if (!rules.length) return;
+        function matchesSource() {
+            return config.rules.some(function (r) {
+                return location.origin === r.sourceOrigin && location.pathname.indexOf(r.sourcePathPrefix) === 0;
+            });
+        }
+        if (!matchesSource()) return;
         window.__kkFormBodyRecoveryInstalled = true;
         var pending = new WeakMap();
         var descriptors = Object.getOwnPropertyDescriptors(HTMLFormElement.prototype);
@@ -26,14 +28,13 @@
         window.addEventListener('submit', function (event) {
             var form = event.target;
             if (!(form instanceof HTMLFormElement) || !event.isTrusted || event.defaultPrevented ||
-                !window.KKJSBridgeConfig || !window.KKJSBridgeConfig.ajaxHook) return;
+                !matchesSource() || !window.KKJSBridgeConfig || !window.KKJSBridgeConfig.ajaxHook) return;
             var submitter = event.submitter;
             var target = effective(form, submitter, 'target', 'formTarget');
             var action;
             try { action = new URL(effective(form, submitter, 'action', 'formAction'), document.baseURI); }
             catch (_) { return; }
-            if (!rules.some(function (r) { return action.origin === r.targetOrigin && action.pathname === r.targetPath; }) ||
-                action.username || action.password || action.href.indexOf('#') !== -1 ||
+            if (action.origin !== location.origin || action.username || action.password || action.href.indexOf('#') !== -1 ||
                 effective(form, submitter, 'method', 'formMethod').toLowerCase() !== 'post' ||
                 effective(form, submitter, 'enctype', 'formEnctype') !== 'application/x-www-form-urlencoded' ||
                 (target && target.toLowerCase() !== '_self') || document.characterSet.toUpperCase() !== 'UTF-8' ||
@@ -78,7 +79,7 @@
                     var body = encoded.toString();
                     if (!valid || body.length > 65536) return;
                     window.KKJSBridge.call('ajax', 'cacheFormBody', {
-                        requestId: state.id, requestUrl: state.url, value: body
+                        requestId: state.id, requestUrl: state.url, requestMethod: 'POST', value: body
                     });
                 } catch (_) { /* Missing cache is rejected by native; never send an empty replacement. */ }
             }, 0);
