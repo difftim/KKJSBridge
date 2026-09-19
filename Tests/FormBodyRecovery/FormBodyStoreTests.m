@@ -17,6 +17,17 @@ int main(void) { @autoreleasepool {
  NSDictionary *legacy=@{@"sourceOrigin":@"https://forms.example",@"sourcePathPrefix":@"/pages/",@"targetOrigin":@"https://api.example",@"targetPath":@"/submit"};
  KKJSBridgeFormBodyStore *legacyStore=[[KKJSBridgeFormBodyStore alloc] initWithRules:@[legacy,legacy]];
  check([legacyStore.configuration[@"rules"] count] == 1 && !legacyStore.configuration[@"rules"][0][@"targetPath"],@"legacy target fields collapse to one source rule");
+ NSDictionary *wildcardRule=@{@"sourceOrigin":@"*",@"sourcePathPrefix":@"/"};
+ KKJSBridgeFormBodyStore *wildcardStore=[[KKJSBridgeFormBodyStore alloc] initWithRules:@[wildcardRule]];
+ check([wildcardStore.configuration[@"rules"][0][@"sourceOrigin"] isEqual:@"*"],@"wildcard origin accepted without URL normalization");
+ NSString *wildcardRootToken=token(wildcardStore,1),*wildcardRootURL=@"https://root.example/submit";
+ check([wildcardStore cacheParameters:params(wildcardRootToken,wildcardRootURL) sourceURL:[NSURL URLWithString:@"https://root.example"]],@"wildcard matches HTTPS origin root path");
+ check([KKJSBridgeFormBodyStore consumeToken:wildcardRootToken request:request(wildcardRootToken,wildcardRootURL)] != nil,@"wildcard root body consumed");
+ NSString *wildcardOtherToken=token(wildcardStore,2),*wildcardOtherURL=@"https://other.example/submit";
+ check([wildcardStore cacheParameters:params(wildcardOtherToken,wildcardOtherURL) sourceURL:[NSURL URLWithString:@"https://other.example/deep/page"]],@"wildcard matches another HTTPS origin");
+ check([KKJSBridgeFormBodyStore consumeToken:wildcardOtherToken request:request(wildcardOtherToken,wildcardOtherURL)] != nil,@"wildcard other-origin body consumed");
+ check(![wildcardStore cacheParameters:params(token(wildcardStore,3),@"http://plain.example/submit") sourceURL:[NSURL URLWithString:@"http://plain.example/page"]],@"wildcard rejects non-HTTPS source");
+ check(![wildcardStore cacheParameters:params(token(wildcardStore,4),@"https://target.example/submit") sourceURL:[NSURL URLWithString:@"https://source.example/page"]],@"wildcard still rejects cross-origin target");
  NSString *ta=token(a,1),*tb=token(b,1),*url=@"https://forms.example/submit?a=one%20two&a=%2f&plus=+&flag&empty=";
  check(![ta isEqual:tb],@"window namespaces even with same nonce");
  check(![b cacheParameters:params(ta,url) sourceURL:source],@"cross-window cache rejected");

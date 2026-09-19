@@ -66,9 +66,14 @@ static NSString *origin(NSURL *url) {
         url.port && url.port.integerValue != 443 ? [@":" stringByAppendingString:url.port.stringValue] : @""];
 }
 static BOOL matchesSource(NSArray *rules, NSURL *source) {
+    NSString *sourceOrigin = origin(source);
+    if (!sourceOrigin) return NO;
+    NSString *sourcePath = [NSURLComponents componentsWithURL:source resolvingAgainstBaseURL:NO].percentEncodedPath;
+    if (!sourcePath.length) sourcePath = @"/";
     for (NSDictionary *rule in rules) {
-        if ([origin(source) isEqual:rule[@"sourceOrigin"]] &&
-            [[NSURLComponents componentsWithURL:source resolvingAgainstBaseURL:NO].percentEncodedPath hasPrefix:rule[@"sourcePathPrefix"]]) return YES;
+        NSString *ruleOrigin = rule[@"sourceOrigin"];
+        if (([ruleOrigin isEqual:@"*"] || [sourceOrigin isEqual:ruleOrigin]) &&
+            [sourcePath hasPrefix:rule[@"sourcePathPrefix"]]) return YES;
     }
     return NO;
 }
@@ -80,11 +85,18 @@ static BOOL matchesSource(NSArray *rules, NSURL *source) {
         if (![rule isKindOfClass:NSDictionary.class]) return nil;
         for (NSString *key in @[@"sourceOrigin", @"sourcePathPrefix"])
             if (![rule[key] isKindOfClass:NSString.class]) return nil;
-        NSURL *source = [NSURL URLWithString:rule[@"sourceOrigin"]];
-        if (!origin(source) || source.query || source.fragment || source.path.length > 1 ||
-            ![rule[@"sourcePathPrefix"] hasPrefix:@"/"] || ![rule[@"sourcePathPrefix"] hasSuffix:@"/"] ||
+        NSString *configuredOrigin = rule[@"sourceOrigin"];
+        NSString *normalizedOrigin = nil;
+        if ([configuredOrigin isEqual:@"*"]) {
+            normalizedOrigin = @"*";
+        } else {
+            NSURL *source = [NSURL URLWithString:configuredOrigin];
+            if (!origin(source) || source.query || source.fragment || source.path.length > 1) return nil;
+            normalizedOrigin = origin(source);
+        }
+        if (![rule[@"sourcePathPrefix"] hasPrefix:@"/"] || ![rule[@"sourcePathPrefix"] hasSuffix:@"/"] ||
             [rule[@"sourcePathPrefix"] containsString:@"?"] || [rule[@"sourcePathPrefix"] containsString:@"#"]) return nil;
-        NSDictionary *normalizedRule = @{@"sourceOrigin": origin(source), @"sourcePathPrefix": rule[@"sourcePathPrefix"]};
+        NSDictionary *normalizedRule = @{@"sourceOrigin": normalizedOrigin, @"sourcePathPrefix": rule[@"sourcePathPrefix"]};
         if (![normalized containsObject:normalizedRule]) [normalized addObject:normalizedRule];
     }
     if ((self = [super init])) {

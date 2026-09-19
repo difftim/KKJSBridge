@@ -19,6 +19,8 @@ struct Case {
  var extraJS = ""
  var enabled = true
  var base = "https://sso.difft.org/ui/login/test"
+ var ruleOrigin = "https://sso.difft.org"
+ var rulePath = "/ui/login/"
 }
 let cases: [Case] = [
  Case(name: "button"),
@@ -43,6 +45,8 @@ let cases: [Case] = [
  Case(name: "cache failure", recovered: false, cacheWorks: false),
  Case(name: "feature off", recovered: false, enabled: false),
  Case(name: "other domain", recovered: false, base: "https://example.com/ui/login/test"),
+ Case(name: "wildcard HTTPS origin", base: "https://example.com/any/page", ruleOrigin: "*", rulePath: "/"),
+ Case(name: "wildcard rejects HTTP", recovered: false, base: "http://example.com/any/page", ruleOrigin: "*", rulePath: "/"),
  Case(name: "SPA leaves source scope", setup: "history.pushState({},'', '/outside/')", recovered: false),
  Case(name: "new same-origin action", setup: "document.querySelector('form').setAttribute('action','/new/endpoint')"),
  Case(name: "cross-origin action", setup: "document.querySelector('form').setAttribute('action','https://api.example/submit')", recovered: false),
@@ -74,7 +78,7 @@ final class Runner: NSObject, WKNavigationDelegate, WKUIDelegate {
   window._KKJSBridgeXHR={generateXHRRequestId:()=>String(Date.now())};
   window.KKJSBridge={call:(module,method,data)=>JSON.parse(prompt('KKJSBridge',JSON.stringify(data))||'null')};
   """
-  config.userContentController.addUserScript(WKUserScript(source: shim + recovery + (current.enabled ? "window.KKJSBridgeInstallFormBodyRecovery({scope:'test-scope',rules:[{sourceOrigin:'https://sso.difft.org',sourcePathPrefix:'/ui/login/'}]});" : ""),injectionTime:.atDocumentStart,forMainFrameOnly:true))
+  config.userContentController.addUserScript(WKUserScript(source: shim + recovery + (current.enabled ? "window.KKJSBridgeInstallFormBodyRecovery({scope:'test-scope',rules:[{sourceOrigin:'\(current.ruleOrigin)',sourcePathPrefix:'\(current.rulePath)'}]});" : ""),injectionTime:.atDocumentStart,forMainFrameOnly:true))
   web=WKWebView(frame:NSRect(x:0,y:0,width:600,height:400),configuration:config)
   web.navigationDelegate=self;web.uiDelegate=self
   if window == nil { window=NSWindow(contentRect:web.frame,styleMask:[.borderless],backing:.buffered,defer:false) }

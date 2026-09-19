@@ -6,8 +6,10 @@
             !('FormDataEvent' in window) || !window.KKJSBridge || !window.crypto ||
             window.__kkFormBodyRecoveryInstalled) return;
         function matchesSource() {
+            if (location.protocol !== 'https:') return false;
             return config.rules.some(function (r) {
-                return location.origin === r.sourceOrigin && location.pathname.indexOf(r.sourcePathPrefix) === 0;
+                return (r.sourceOrigin === '*' || location.origin === r.sourceOrigin) &&
+                    location.pathname.indexOf(r.sourcePathPrefix) === 0;
             });
         }
         if (!matchesSource()) return;

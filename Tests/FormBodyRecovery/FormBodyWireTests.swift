@@ -4,7 +4,10 @@ let app=NSApplication.shared
 app.setActivationPolicy(.prohibited)
 let root=URL(fileURLWithPath:CommandLine.arguments[1])
 let origin=CommandLine.arguments[2]
-let recovery=try String(contentsOf:root.appendingPathComponent("KKJSBridge/KKJSBridge/JS/KKJSBridgeFormBodyRecovery.js"),encoding:.utf8)
+let productionRecovery=try String(contentsOf:root.appendingPathComponent("KKJSBridge/KKJSBridge/JS/KKJSBridgeFormBodyRecovery.js"),encoding:.utf8)
+// This runner owns a loopback HTTP server. Remove only the production HTTPS gate so the
+// browser-byte comparison remains local; native production policy still accepts HTTPS only.
+let recovery=productionRecovery.replacingOccurrences(of:"if (location.protocol !== 'https:') return false;",with:"")
 final class WireRunner:NSObject,WKNavigationDelegate,WKScriptMessageHandler {
  var web:WKWebView!
  var window:NSWindow!
