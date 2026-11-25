@@ -43,3 +43,12 @@ test-url-protocol:
 		KKJSBridge/KKJSBridge/Util/KKJSBridgeWeakProxy.m "$(TEST_DIR)/URLProtocolIsolationTests.m" \
 		-o "$(BUILD_DIR)/url-protocol"
 	"$(BUILD_DIR)/url-protocol"
+
+# One-shot WebKit dialog completion guard used by KKWebView's alert/confirm/prompt panels.
+.PHONY: test-dialog-completion
+test-dialog-completion:
+	@mkdir -p "$(BUILD_DIR)"
+	xcrun clang -fobjc-arc -fblocks -framework Foundation -I KKJSBridge/KKJSBridge/View \
+		KKJSBridge/KKJSBridge/View/KKJSDialogCompletion.m Tests/DialogCompletion/DialogCompletionTests.m \
+		-o "$(BUILD_DIR)/dialog-completion"
+	"$(BUILD_DIR)/dialog-completion"
