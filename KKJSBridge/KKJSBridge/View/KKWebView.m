@@ -12,6 +12,7 @@
 #import "WKWebView+KKWebViewReusable.h"
 #import "WKWebView+KKJSBridgeEngine.h"
 #import "KKWebViewCookieManager.h"
+#import "KKJSDialogCompletion.h"
 
 @interface KKWebView() <WKNavigationDelegate, WKUIDelegate>
 
@@ -148,18 +149,22 @@
         return;
     }
     
+    // 弹窗可能未经点击就被关闭或释放，由 completion 兜底保证 completionHandler 恰好调用一次
+    KKJSDialogCompletion *completion = [[KKJSDialogCompletion alloc] initWithFallback:^{
+        completionHandler();
+    }];
     UIAlertController *alertController =
     [UIAlertController alertControllerWithTitle:@"" message:message
                                  preferredStyle:UIAlertControllerStyleAlert];
     [alertController addAction:([UIAlertAction actionWithTitle:@"确认"
                                                          style:UIAlertActionStyleDefault
                                                        handler:^(UIAlertAction *_Nonnull action) {
-                                                           completionHandler();
+                                                           [completion completeWithBlock:^{ completionHandler(); }];
                                                        }])];
     
     UIViewController *topPresentedViewController = [self _topPresentedViewController];
     if (topPresentedViewController.presentingViewController) {
-        completionHandler();
+        [completion completeWithBlock:^{ completionHandler(); }];
     } else {
         [topPresentedViewController presentViewController:alertController animated:YES completion:nil];
     }
@@ -172,6 +177,10 @@
         return;
     }
     
+    // 弹窗可能未经点击就被关闭或释放，此时按取消处理
+    KKJSDialogCompletion *completion = [[KKJSDialogCompletion alloc] initWithFallback:^{
+        completionHandler(NO);
+    }];
     UIAlertController *alertController =
     [UIAlertController alertControllerWithTitle:@"" message:message
                                  preferredStyle:UIAlertControllerStyleAlert];
@@ -179,17 +188,17 @@
     [alertController addAction:([UIAlertAction actionWithTitle:@"取消"
                                                          style:UIAlertActionStyleCancel
                                                        handler:^(UIAlertAction *_Nonnull action) {
-                                                           completionHandler(NO);
+                                                           [completion completeWithBlock:^{ completionHandler(NO); }];
                                                        }])];
     [alertController addAction:([UIAlertAction actionWithTitle:@"确定"
                                                          style:UIAlertActionStyleDefault
                                                        handler:^(UIAlertAction *_Nonnull action) {
-                                                           completionHandler(YES);
+                                                           [completion completeWithBlock:^{ completionHandler(YES); }];
                                                        }])];
     
     UIViewController *topPresentedViewController = [self _topPresentedViewController];
     if (topPresentedViewController.presentingViewController) {
-        completionHandler(NO);
+        [completion completeWithBlock:^{ completionHandler(NO); }];
     } else {
         [topPresentedViewController presentViewController:alertController animated:YES completion:nil];
     }
@@ -211,6 +220,10 @@
     NSString *hostString = webView.URL.host;
     NSString *sender = [NSString stringWithFormat:@"%@", hostString];
     
+    // 弹窗可能未经点击就被关闭或释放，此时按取消处理
+    KKJSDialogCompletion *completion = [[KKJSDialogCompletion alloc] initWithFallback:^{
+        completionHandler(nil);
+    }];
     UIAlertController *alertController = [UIAlertController alertControllerWithTitle:prompt
                                                                              message:sender
                                                                       preferredStyle:UIAlertControllerStyleAlert];
@@ -218,30 +231,24 @@
     [alertController addTextFieldWithConfigurationHandler:^(UITextField *textField) {
         textField.text = defaultText;
     }];
+    // 弱引用避免 alert -> action -> block -> alert 循环引用，否则 alert 和 completion 都不会释放
+    __weak UIAlertController *weakAlertController = alertController;
     [alertController
      addAction:([UIAlertAction actionWithTitle:@"确定"
                                          style:UIAlertActionStyleDefault
                                        handler:^(UIAlertAction *action) {
-                                           if (alertController.textFields && alertController.textFields.count > 0) {
-                                               UITextField *textFiled = [alertController.textFields firstObject];
-                                               if (textFiled.text && textFiled.text.length > 0) {
-                                                   completionHandler(textFiled.text);
-                                               } else {
-                                                   completionHandler(nil);
-                                               }
-                                           } else {
-                                               completionHandler(nil);
-                                           }
+                                           NSString *text = weakAlertController.textFields.firstObject.text;
+                                           [completion completeWithBlock:^{ completionHandler(text.length > 0 ? text : nil); }];
                                        }])];
     [alertController addAction:([UIAlertAction actionWithTitle:@"取消"
                                                          style:UIAlertActionStyleCancel
                                                        handler:^(UIAlertAction *action) {
-                                                           completionHandler(nil);
+                                                           [completion completeWithBlock:^{ completionHandler(nil); }];
                                                        }])];
     
     UIViewController *topPresentedViewController = [self _topPresentedViewController];
     if (topPresentedViewController.presentingViewController) {
-        completionHandler(nil);
+        [completion completeWithBlock:^{ completionHandler(nil); }];
     } else {
         [topPresentedViewController presentViewController:alertController animated:YES completion:nil];
     }
